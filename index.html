@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0E0F11">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Trainingsplan</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap">
 <style>
@@ -17,6 +17,9 @@ button,input,select{font-family:inherit;color:inherit;font-size:inherit}
 button{cursor:pointer;-webkit-appearance:none;appearance:none}
 button:disabled{cursor:default;opacity:.5}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+html,body{scrollbar-width:none;-ms-overflow-style:none}
+html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
+#topcover{position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:var(--bg);z-index:30;pointer-events:none}
 #app{max-width:480px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;padding:calc(env(safe-area-inset-top) + 20px) 20px 0}
 .page{display:flex;flex-direction:column;gap:20px;flex:1;padding-bottom:24px}
 .sg{font-family:'Space Grotesk',sans-serif}
@@ -158,6 +161,7 @@ input[type=range]{width:100%;accent-color:var(--acc);height:28px}
 </style>
 </head>
 <body>
+<div id="topcover"></div>
 <div id="app"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
@@ -320,7 +324,7 @@ function syncText() {
   return 'Daten werden in diesem Browser gespeichert';
 }
 function updateSync() { const el = document.getElementById('sync'); if (el) { el.textContent = syncText(); el.classList.toggle('warn', syncState === 'error'); } }
-const syncHtml = () => '<div class="sync' + (syncState === 'error' ? ' warn' : '') + '" id="sync">' + syncText() + '</div>';
+const syncHtml = () => syncState === 'local' ? '' : '<div class="sync' + (syncState === 'error' ? ' warn' : '') + '" id="sync">' + syncText() + '</div>';
 
 /* ---------- Abfragen ---------- */
 const planById = id => data.plans.find(p => p.id === id);
