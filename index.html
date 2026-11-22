@@ -207,6 +207,7 @@ function defaults() {
     greeting: 'Hi Philipp',
     theme: 'lime',
     pauseOverlay: true,
+    weekGoal: 3,
     defaultPause: 90,
     plans: [
       { id: uid(), short: 'PUSH', pause: 90, exercises: [
@@ -236,6 +237,7 @@ if (typeof data.greeting !== 'string') data.greeting = typeof data.name === 'str
 delete data.name;
 if (typeof data.theme !== 'string') data.theme = 'lime';
 if (typeof data.pauseOverlay !== 'boolean') data.pauseOverlay = true;
+if (!(data.weekGoal >= 1)) data.weekGoal = 3;
 
 /* Akzentfarben */
 const THEMES = [
@@ -276,7 +278,7 @@ async function writeCfg() {
   if (!cloud) return;
   if (cfgBusy) { cfgAgain = true; return; }
   cfgBusy = true;
-  try { await cloud.cfg.set({ v: 1, plans: data.plans, defaultPause: data.defaultPause, greeting: data.greeting, theme: data.theme, pauseOverlay: data.pauseOverlay }); syncState = 'cloud'; }
+  try { await cloud.cfg.set({ v: 1, plans: data.plans, defaultPause: data.defaultPause, greeting: data.greeting, theme: data.theme, pauseOverlay: data.pauseOverlay, weekGoal: data.weekGoal }); syncState = 'cloud'; }
   catch (e) { syncState = 'error'; }
   cfgBusy = false; updateSync();
   if (cfgAgain) { cfgAgain = false; writeCfg(); }
@@ -309,8 +311,9 @@ async function initCloud() {
       else if (typeof b.name === 'string') data.greeting = ('Hi ' + b.name).trim();
       if (typeof b.theme === 'string') data.theme = b.theme;
       if (typeof b.pauseOverlay === 'boolean') data.pauseOverlay = b.pauseOverlay;
+      if (b.weekGoal >= 1) data.weekGoal = b.weekGoal;
     } else {
-      await cfg.set({ v: 1, plans: data.plans, defaultPause: data.defaultPause, greeting: data.greeting, theme: data.theme, pauseOverlay: data.pauseOverlay });
+      await cfg.set({ v: 1, plans: data.plans, defaultPause: data.defaultPause, greeting: data.greeting, theme: data.theme, pauseOverlay: data.pauseOverlay, weekGoal: data.weekGoal });
     }
     for (const s of localOnly) await ses.doc(s.id).set(s);
     data.sessions = remote.concat(localOnly).sort((a, b) => a.end - b.end);
@@ -340,9 +343,9 @@ function weekInfo() {
   const ss = data.sessions.filter(s => s.end >= ws);
   const ids = new Set(activePlans().map(p => p.id));
   const doneMap = {}; const days = Array(7).fill(false);
-  ss.forEach(s => { const di = dayIdx(new Date(s.end)); days[di] = true; if (ids.has(s.planId) && !(s.planId in doneMap)) doneMap[s.planId] = DAYS[di]; });
-  const total = activePlans().length;
-  return { doneMap, days, total, count: Math.min(Object.keys(doneMap).length, total) };
+  ss.forEach(s => { const di = dayIdx(new Date(s.end)); days[di] = true; if (ids.has(s.planId)) (doneMap[s.planId] = doneMap[s.planId] || []).push(DAYS[di]); });
+  const total = data.weekGoal;
+  return { doneMap, days, total, count: ss.length };
 }
 function lastSets(exId) {
   const names = exNames(); const k = nkey(names.get(exId));
@@ -391,7 +394,7 @@ function navBar(on) {
 /* 1 · Start */
 function vStart() {
   const wk = weekInfo();
-  const frac = wk.total ? wk.count / wk.total : 0;
+  const frac = wk.total ? Math.min(1, wk.count / wk.total) : 0;
   const clip = 'clip-path:inset(' + Math.round((1 - frac) * 100) + '% 0 0 0)';
   const today = dayIdx(new Date());
   let h = '<div class="page">';
@@ -413,7 +416,7 @@ function vStart() {
   activePlans().forEach(p => {
     const d = wk.doneMap[p.id]; const n = p.exercises.length;
     h += '<button class="plancard' + (d ? ' done' : '') + '" data-a="openPlan" data-id="' + p.id + '"><span class="between" style="width:100%"><span class="t">' + esc(p.short || '–') + '</span><span class="go">' + (d ? ICON.check : ICON.play) + '</span></span>';
-    h += '<span class="s">' + (d ? 'Diese Woche erledigt · ' + d : n + (n === 1 ? ' Übung' : ' Übungen')) + '</span></button>';
+    h += '<span class="s">' + (d ? d.length + '× diese Woche · ' + d.join(', ') : n + (n === 1 ? ' Übung' : ' Übungen')) + '</span></button>';
   });
   h += '</div>';
   }
@@ -443,10 +446,10 @@ function vPlan() {
   h += '</div>';
   const fromArch = S.startTab === 'arch'; const btns = [];
   if (p.archived || fromArch) btns.push('<button class="secondary" data-a="copyPlan">Als Vorlage kopieren</button>');
-  if (p.archived) btns.push('<button class="danger" data-a="delPlanAsk" style="min-height:58px;border-radius:20px">Endgültig löschen</button>');
+  if (p.archived || fromArch) btns.push('<button class="danger" data-a="delPlanAsk" style="min-height:58px;border-radius:20px">Endgültig löschen</button>');
   else if (!fromArch) btns.push('<button class="secondary" data-a="archivePlanView">Ins Archiv</button>');
   h += btns.length > 1 ? '<div class="grid2">' + btns.join('') + '</div>' : '<div class="col">' + btns.join('') + '</div>';
-  if (p.archived && S.confirmDel) h += '<div class="confirm"><span>Plan „' + esc(p.short) + '“ endgültig löschen? Deine gespeicherten Trainings bleiben im Verlauf erhalten.</span><div class="grid2"><button class="secondary" data-a="delPlanNo">Abbrechen</button><button class="danger" data-a="delPlanYes">Löschen</button></div></div>';
+  if ((p.archived || fromArch) && S.confirmDel) h += '<div class="confirm"><span>Plan „' + esc(p.short) + '“ endgültig löschen? Deine gespeicherten Trainings bleiben im Verlauf erhalten.</span><div class="grid2"><button class="secondary" data-a="delPlanNo">Abbrechen</button><button class="danger" data-a="delPlanYes">Löschen</button></div></div>';
   h += '</div><div class="bottombar">';
   if (p.archived) h += '<button class="primary" data-a="unarchive">' + ICON.plus + 'Zur aktuellen Woche hinzufügen</button>';
   else if (active && active.planId === p.id) h += '<button class="primary" data-a="resume">' + ICON.play + 'Training fortsetzen</button>';
@@ -608,7 +611,7 @@ function histEx() {
 function weekBuckets() {
   if (!data.sessions.length) return [];
   const now = weekStart(Date.now()); let w = weekStart(data.sessions[0].end); const out = [];
-  while (w <= now) { const end = w + 7 * 864e5; const ss = data.sessions.filter(s => s.end >= w && s.end < end); out.push({ start: w, sessions: ss, vol: ss.reduce((t, s) => t + volOf(s), 0), units: new Set(ss.map(s => s.planId)).size }); const d = new Date(w); d.setDate(d.getDate() + 7); w = d.getTime(); }
+  while (w <= now) { const end = w + 7 * 864e5; const ss = data.sessions.filter(s => s.end >= w && s.end < end); out.push({ start: w, sessions: ss, vol: ss.reduce((t, s) => t + volOf(s), 0), units: ss.length }); const d = new Date(w); d.setDate(d.getDate() + 7); w = d.getTime(); }
   return out.slice(-12);
 }
 function improvedCount(a, b) {
@@ -657,6 +660,7 @@ function vSettings() {
   let h = '<div class="page"><h1 class="h1" style="font-size:34px">Einstellungen</h1>';
   h += '<div class="card col" style="gap:10px"><label for="uname" style="font-size:15px;font-weight:600">Dein Name</label><input id="uname" class="inp" type="text" maxlength="40" autocomplete="off" data-in="userName" data-ch="userName" value="' + esc(data.greeting) + '" placeholder="z. B. Hi Philipp"><span class="mut" style="font-size:13px">Steht genau so auf der Startseite oben links</span></div>';
   h += '<div class="card setrowx"><div class="col" style="gap:3px"><span id="pzlbl" style="font-size:15px;font-weight:600">Pausen-Bildschirm nach jedem Satz</span><span class="mut" style="font-size:13px">' + (data.pauseOverlay ? 'An: Nach dem Abhaken öffnet sich der große Pausen-Timer' : 'Aus: Die Pause läuft nur klein unten rechts neben „+ Satz“') + '</span></div><button class="switch' + (data.pauseOverlay ? ' on' : '') + '" data-a="togglePauseOverlay" role="switch" aria-checked="' + data.pauseOverlay + '" aria-labelledby="pzlbl"></button></div>';
+  h += '<div class="card col" style="gap:10px"><div class="col" style="gap:3px"><span style="font-size:15px;font-weight:600">Wochenziel</span><span class="mut" style="font-size:13px">So viele Einheiten willst du pro Woche schaffen – egal welche Pläne</span></div><div class="stepper"><span>Einheiten pro Woche</span><div class="row" style="gap:0"><button data-a="goalDec" aria-label="Wochenziel verringern">−</button><b>' + data.weekGoal + '</b><button data-a="goalInc" aria-label="Wochenziel erhöhen">+</button></div></div></div>';
   h += '<div class="card col" style="gap:12px"><span style="font-size:15px;font-weight:600">Akzentfarbe</span><div class="swatches" role="radiogroup" aria-label="Akzentfarbe">' + THEMES.map(t => '<button class="swatch' + (data.theme === t.id ? ' on' : '') + '" data-a="setTheme" data-id="' + t.id + '" role="radio" aria-checked="' + (data.theme === t.id) + '"><i style="background:' + t.c + '"></i>' + t.name + '</button>').join('') + '</div></div>';
   h += syncHtml();
   h += '</div>' + navBar('settings');
@@ -685,7 +689,7 @@ function vEdit() {
   h += '</div><button class="ghost" data-a="exAdd">' + ICON.plus + 'Übung hinzufügen</button>';
   const orig = S.draftNew ? null : planById(d.id);
   if (orig && !orig.archived) h += '<button class="secondary" data-a="archivePlan" style="width:100%">Ins Archiv verschieben</button>';
-  else if (!S.draftNew) {
+  if (!S.draftNew) {
     if (S.confirmDel) h += '<div class="confirm"><span>Plan „' + esc(d.short) + '“ endgültig löschen? Deine gespeicherten Trainings bleiben im Verlauf erhalten.</span><div class="grid2"><button class="secondary" data-a="delNo">Abbrechen</button><button class="danger" data-a="delYes">Löschen</button></div></div>';
     else h += '<button class="danger" data-a="delPlan">Endgültig löschen</button>';
   }
@@ -697,6 +701,8 @@ const A = {
   goStart: () => go('start'),
   goHist: () => go('hist'),
   goSettings: () => go('settings'),
+  goalDec: () => { data.weekGoal = Math.max(1, data.weekGoal - 1); persist(); render(); },
+  goalInc: () => { data.weekGoal = Math.min(14, data.weekGoal + 1); persist(); render(); },
   togglePauseOverlay: () => { data.pauseOverlay = !data.pauseOverlay; persist(); render(); },
   setTheme: t => { data.theme = t.dataset.id; applyTheme(); persist(); render(); },
   goHistUnit: () => go('hist', { histTab: 'unit', unitSel: S.planId, cmpA: null, cmpB: null }),
@@ -708,7 +714,7 @@ const A = {
   copyPlan: () => { const p = planById(S.planId); if (!p) return; go('edit', { draft: { id: uid(), short: p.short, pause: p.pause || data.defaultPause, exercises: p.exercises.map(e => Object.assign({}, e, { id: uid() })) }, draftNew: true, confirmDel: false }); },
   delPlanAsk: () => { S.confirmDel = true; render(); },
   delPlanNo: () => { S.confirmDel = false; render(); },
-  delPlanYes: () => { data.plans = data.plans.filter(p => p.id !== S.planId); persist(); toast('Plan gelöscht'); go('start', { planId: null, confirmDel: false, startTab: 'arch' }); },
+  delPlanYes: () => { if (active && active.planId === S.planId) { toast('Dieser Plan wird gerade trainiert', true); return; } data.plans = data.plans.filter(p => p.id !== S.planId); persist(); toast('Plan gelöscht'); go('start', { planId: null, confirmDel: false, startTab: 'arch' }); },
   openPlanActive: () => go('plan', { planId: active.planId, group: null }),
   grp: t => { S.group = t.dataset.g || null; render(); },
   resume: () => go('train'),
